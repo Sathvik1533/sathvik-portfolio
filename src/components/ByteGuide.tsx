@@ -250,18 +250,43 @@ export const ByteGuide: React.FC = () => {
       timestamp: 'Just now',
     };
 
-    const { response, suggestions } = answerQuery(text);
+    setMessages((prev) => [...prev, userMsg]);
+    setInputValue('');
 
-    const botMsg: ChatMessage = {
-      id: `bot-${Date.now() + 1}`,
-      sender: 'bot',
-      text: response,
-      timestamp: 'Just now',
-      suggestions,
+    // Check serverless backend (/api/chat), with immediate fallback to local grounded knowledge engine
+    const resolveAnswer = async () => {
+      try {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 2000);
+        const res = await fetch('/api/chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ message: text }),
+          signal: controller.signal,
+        });
+        clearTimeout(timer);
+        if (res.ok) {
+          const data = await res.json();
+          if (data && data.response) {
+            return { response: data.response, suggestions: data.suggestions };
+          }
+        }
+      } catch {
+        // Ignore and fallback to client-side engine
+      }
+      return answerQuery(text);
     };
 
-    setMessages((prev) => [...prev, userMsg, botMsg]);
-    setInputValue('');
+    resolveAnswer().then(({ response, suggestions }) => {
+      const botMsg: ChatMessage = {
+        id: `bot-${Date.now() + 1}`,
+        sender: 'bot',
+        text: response,
+        timestamp: 'Just now',
+        suggestions,
+      };
+      setMessages((prev) => [...prev, botMsg]);
+    });
   };
 
   const handleKeyDownInput = (e: React.KeyboardEvent<HTMLInputElement>) => {
